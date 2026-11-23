@@ -7,7 +7,7 @@
     {
       "name": "Gemini + DeepSeek Hybrid",
       "author": "vBook",
-      "path": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/plugin-v20.zip",
+      "path": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/plugin.zip",
       "version": 20,
       "source": "https://aistudio.google.com",
       "icon": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/icon.png",
