@@ -1,0 +1,19 @@
+{
+  "metadata": {
+    "author": "Lyte9955",
+    "description": "Kệ extension dịch truyện cá nhân của Lyte9955"
+  },
+  "data": [
+    {
+      "name": "Gemini + DeepSeek Hybrid",
+      "author": "vBook",
+      "path": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/plugin.zip",
+      "version": 14,
+      "source": "https://aistudio.google.com",
+      "icon": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/icon.png",
+      "description": "Kiến trúc lai: Google Gemini Free Tier dịch chính + DeepSeek (Gitapihub) nhớ ngữ cảnh, học bộ nhớ và cứu hộ",
+      "type": "translate",
+      "locale": "global"
+    }
+  ]
+}
