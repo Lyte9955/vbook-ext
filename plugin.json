@@ -8,7 +8,7 @@
       "name": "Gemini + DeepSeek Hybrid",
       "author": "vBook",
       "path": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/plugin.zip",
-      "version": 24,
+      "version": 26,
       "source": "https://aistudio.google.com",
       "icon": "https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/gemini-deepseek-hybrid/icon.png",
       "description": "Kiến trúc lai: Google Gemini Free Tier dịch chính + DeepSeek (Gitapihub) nhớ ngữ cảnh, học bộ nhớ, sửa chữ Hán sót và cứu hộ",
