@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "name": "Gemini + DeepSeek Hybrid",
+    "author": "vBook",
+    "version": 37,
+    "source": "https://aistudio.google.com",
+    "description": "Kiến trúc lai: Google Gemini Free Tier dịch chính + DeepSeek (Gitapihub) nhớ ngữ cảnh, học bộ nhớ, sửa chữ Hán sót và cứu hộ",
+    "locale": "global",
+    "regexp": "",
+    "type": "translate",
+    "nsfw": false,
+    "encrypt": false
+  },
+  "script": {
+    "config": "config.js",
+    "action": "action.js",
+    "language": "language.js",
+    "model": "model.js",
+    "style": "style.js",
+    "translate": "translate.js"
+  },
+  "config": {
+    "support_auto_detect": true,
+    "max_line": 180,
+    "max_length": 4500,
+    "support_url": "https://aistudio.google.com/apikey"
+  }
+}
