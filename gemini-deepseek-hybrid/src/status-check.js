@@ -42,7 +42,7 @@ function execute() {
         }
 
         var lines = [];
-        lines.push("Phiên bản extension: v37");
+        lines.push("Phiên bản extension: v38");
         var aliveKeys = Math.max(0, gemKeys.length - deadAuth);
         var nextCursorPos = gemKeys.length > 0 ? ((state.cursor % gemKeys.length) + 1) : 0;
         lines.push("Gemini API keys: " + gemKeys.length + " key (sống: " + aliveKeys + ", lỗi 401/403: " + deadAuth + ")");
@@ -52,7 +52,20 @@ function execute() {
         if (deadKeyNums.length > 0) {
             lines.push("Vị trí key lỗi 401/403: " + deadKeyNums.join(", "));
         }
-        lines.push("DeepSeek / Gitapihub: " + (dsEnabled ? "ĐANG BẬT" : "ĐANG TẮT") + " (" + dsKeys.length + " key)");
+        var deadDs = 0;
+        if (state.dsAuthDead) {
+            for (var dIdx = 0; dIdx < dsKeys.length; dIdx++) {
+                var dFp = llmKeyFingerprint(dsKeys[dIdx]);
+                if (state.dsAuthDead[dFp] && Number(state.dsAuthDead[dFp]) > now) {
+                    deadDs++;
+                }
+            }
+        }
+        var dsStatusText = dsEnabled ? "ĐANG BẬT" : "ĐANG TẮT";
+        var dsCtxEngineOn = llmReadBoolConfig("deepseek_context_engine", false);
+        var dsModeNote = dsEnabled ? (dsCtxEngineOn ? " | Ngữ cảnh: DeepSeek" : " | Chỉ cứu hộ (Ngữ cảnh: Gemini)") : "";
+        var dsDeadNote = deadDs > 0 ? (" | Tạm ngắt 401/402/403: " + deadDs + "/" + dsKeys.length) : "";
+        lines.push("DeepSeek / Gitapihub: " + dsStatusText + " (" + dsKeys.length + " key" + dsModeNote + dsDeadNote + ")");
         lines.push("Chế độ QT-Polish (dịch thô QT -> AI làm mượt): " + (qtPolishOn ? "ĐANG BẬT" : "ĐANG TẮT"));
 
         var hasCooling = false;
@@ -104,7 +117,8 @@ function execute() {
                 if (!bridgeOn) {
                     lines.push("Ngữ cảnh truyện: mục 3.3 đang TẮT (trong kho còn " + rawStory.length + " ký tự)");
                 } else {
-                    lines.push("Ngữ cảnh truyện (story_state): " + (rawStory ? rawStory.length + " ký tự" + (!dsEnabled ? " [Đóng băng do DeepSeek TẮT]" : "") : "chưa có"));
+                    var ctxEngineLabel = (dsEnabled && dsCtxEngineOn && deadDs < dsKeys.length) ? "DeepSeek" : "Gemini Flash-Lite";
+                    lines.push("Ngữ cảnh truyện (story_state, " + ctxEngineLabel + "): " + (rawStory ? rawStory.length + " ký tự" : "chưa có"));
                     lines.push("Cầu nối cuối chương: " + (rawTail ? rawTail.length + " ký tự" : "chưa có"));
                 }
                 var syncCnt = "";

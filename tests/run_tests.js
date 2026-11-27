@@ -183,6 +183,140 @@ test("6. Action guards (capture-context 3.3 OFF, reset-keys preserves cursor/log
     return "All action guards OK";
 });
 
+// 7. v38: Gemini Flash-Lite handles story_state when 2.2=OFF, DeepSeek only rescues
+test("7. v38: Gemini updates story_state when 2.2=OFF; DeepSeek rescues PROHIBITED_CONTENT", () => {
+    const store = {};
+    let dsCalls = 0;
+    const gemModels = [];
+    const longChapter = "第一章 测试内容。".repeat(30);
+    const longVi = "Chương 1: Đây là đoạn văn bản đủ dài để kích hoạt bước cập nhật ngữ cảnh bằng Gemini Flash-Lite ở cuối chương, đảm bảo không tiêu tốn bất kỳ token nào của DeepSeek cho tác vụ định kỳ này khi mục 2.2 đang tắt. ".repeat(2);
+    const ctx = loadSandbox(
+        {
+            api_key_lines: "AIza1",
+            deepseek_api_key_lines: "sk-1",
+            enable_deepseek: "true",
+            deepseek_context_engine: "false",
+            deepseek_rescue_fallback: "true",
+            free_tier_model_cascade: "false"
+        },
+        store,
+        (url, opts) => {
+            if (url.includes("gitapihub")) {
+                dsCalls++;
+                return {
+                    ok: true,
+                    status: 200,
+                    text: () => JSON.stringify({ choices: [{ finish_reason: "stop", message: { content: "Bản dịch cứu hộ DeepSeek thành công." } }] })
+                };
+            }
+            const m = url.match(/\/models\/([^:]+):generateContent/)[1];
+            gemModels.push(m);
+            const body = JSON.parse(opts.body);
+            if (body.generationConfig && body.generationConfig.responseMimeType === "application/json") {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: () => JSON.stringify({
+                        candidates: [{
+                            finishReason: "STOP",
+                            content: { parts: [{ text: JSON.stringify({ story_state: "[BỐI CẢNH] Đang ở phòng thử nghiệm. [XƯNG HÔ] ta - ngươi.", memory: [] }) }] }
+                        }]
+                    })
+                };
+            }
+            if (gemModels.length === 1) {
+                return {
+                    ok: true,
+                    status: 200,
+                    text: () => JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: longVi }] } }] })
+                };
+            }
+            return {
+                ok: true,
+                status: 200,
+                text: () => JSON.stringify({ candidates: [{ finishReason: "PROHIBITED_CONTENT" }] })
+            };
+        }
+    );
+    ctx.load("translate.js");
+    const r1 = ctx.execute(longChapter, "zh-CN", "vi", "chapterContent", "gemini-3.8-flash", "vo-han-luu");
+    assert.strictEqual(r1.ok, true);
+    assert.strictEqual(dsCalls, 0);
+    assert.deepStrictEqual(gemModels, ["gemini-3.8-flash", "gemini-3.5-flash-lite"]);
+    assert.ok(store.gemini_story_state_v1_book_test.includes("phòng thử nghiệm"));
+
+    const r2 = ctx.execute("敏感测试", "zh-CN", "vi", "chapterContent", "gemini-3.8-flash", "vo-han-luu");
+    assert.strictEqual(r2.ok, true);
+    assert.strictEqual(dsCalls, 1);
+    assert.ok(r2.data.includes("DeepSeek"));
+    return "0 DS on normal chapter + 1 DS rescue OK";
+});
+
+// 8. v38: DeepSeek HTTP 402 auto-cooldown + reset-keys clears dsAuthDead
+test("8. v38: DeepSeek HTTP 402 auto-cooldown skips repeat calls; reset-keys clears it", () => {
+    const store = {};
+    let dsFetchCount = 0;
+    const ctx = loadSandbox(
+        { api_key_lines: "AIza1", deepseek_api_key_lines: "sk-empty", enable_deepseek: "true" },
+        store,
+        (url) => {
+            if (url.includes("gitapihub")) {
+                dsFetchCount++;
+                return { ok: false, status: 402, text: () => JSON.stringify({ error: { message: "Insufficient balance" } }) };
+            }
+            return { ok: false, status: 503, text: () => "{}" };
+        }
+    );
+    ctx.load("llm.js");
+    const r1 = ctx.llmDeepSeekRequest("sys", "usr", {}, 20000);
+    assert.ok(r1.error.includes("402"));
+    assert.strictEqual(dsFetchCount, 1);
+    assert.strictEqual(ctx.llmHasDeepSeek(), false);
+
+    const r2 = ctx.llmDeepSeekRequest("sys", "usr", {}, 20000);
+    assert.strictEqual(dsFetchCount, 1);
+    assert.ok(r2.error.includes("Không có DeepSeek"));
+
+    ctx.load("reset-keys.js");
+    assert.strictEqual(ctx.execute().ok, true);
+    assert.strictEqual(ctx.llmHasDeepSeek(), true);
+    return "HTTP 402 cooldown + reset-keys OK";
+});
+
+// 9. v38: repairRemainingChinese falls back to Gemini Flash-Lite when DeepSeek errors
+test("9. v38: repairRemainingChinese falls back to Gemini Flash-Lite on DeepSeek 402", () => {
+    const store = {};
+    let dsCalled = 0;
+    let gemCalled = 0;
+    const ctx = loadSandbox(
+        { api_key_lines: "AIza1", deepseek_api_key_lines: "sk-empty", enable_deepseek: "true", deepseek_context_engine: "true" },
+        store,
+        (url) => {
+            if (url.includes("gitapihub")) {
+                dsCalled++;
+                return { ok: false, status: 402, text: () => JSON.stringify({ error: { message: "Insufficient balance" } }) };
+            }
+            gemCalled++;
+            return {
+                ok: true,
+                status: 200,
+                text: () => JSON.stringify({
+                    candidates: [{
+                        finishReason: "STOP",
+                        content: { parts: [{ text: JSON.stringify({ items: [{ id: "0", translation: "Ngọc" }] }) }] }
+                    }]
+                })
+            };
+        }
+    );
+    ctx.load("translate.js");
+    const fixed = ctx.repairRemainingChinese("gemini-3.8-flash", ["AIza1"], "Hoàng玉 đứng đó.", "vi", "", 4096, "book_test", 25000);
+    assert.strictEqual(dsCalled, 1);
+    assert.strictEqual(gemCalled, 1);
+    assert.strictEqual(fixed, "Hoàng Ngọc đứng đó.");
+    return "Repair fallback DS->Gemini OK";
+});
+
 let passed = 0;
 for (const t of tests) {
     try {

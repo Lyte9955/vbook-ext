@@ -38,7 +38,7 @@ function execute() {
     llmAddContextBridgeConfig(config);
     config[translationConfigKey("retry_untranslated_chinese")] = {
         title: "3.4. Tự sửa chữ Hán còn sót",
-        subtitle: "Nếu đang BẬT DeepSeek (mục 2.0) và có key sẽ dùng DeepSeek sửa mọi chữ sót; khi tắt DeepSeek + bật Eco Mode chỉ sửa bằng Flash-Lite khi sót >= 8 chữ",
+        subtitle: "Nếu bật mục 2.2 và có DeepSeek sẽ dùng DeepSeek (tự chuyển về Gemini nếu lỗi); nếu tắt mục 2.2 dùng Gemini Flash-Lite (khi bật Eco Mode chỉ sửa khi sót >= 8 chữ)",
         "default": "true",
         mode: "toggle"
     };

@@ -199,20 +199,22 @@ function execute(text, from, to, source, model, style) {
     var elapsedBeforePost = new Date().getTime() - chapterStartMs;
     var allowPostSteps = elapsedBeforePost < CHAPTER_SOFT_BUDGET_MS && String(finalText || "").trim().length >= 250;
 
-    var usedDeepSeekSync = false;
+    var usedContextSync = false;
     if (allowPostSteps && source === "chapterContent" && bookId && typeof llmDeepSeekSyncContextAndMemory === "function" &&
-        typeof llmHasDeepSeek === "function" && llmHasDeepSeek() && readBoolean("deepseek_context_engine", true)) {
+        readBoolean("use_context_bridge", true)) {
         var sourceName = isChineseSource(text, from) ? translationLanguageName("zh") : translationLanguageName(from);
         var targetName = translationLanguageName(to);
         var syncBudgetMs = Math.max(8000, Math.min(25000, CHAPTER_HARD_BUDGET_MS - elapsedBeforePost));
-        var syncRes = llmDeepSeekSyncContextAndMemory(bookId, text, finalText, sourceName, targetName, memoryContext.prompt, syncBudgetMs);
+        var syncRes = llmDeepSeekSyncContextAndMemory(bookId, text, finalText, sourceName, targetName, memoryContext.prompt, syncBudgetMs, apiKeys);
         if (syncRes && syncRes.memory && syncRes.memory.length > 0 && memoryContext.enabled) {
             persistTranslationMemory(memoryContext, text, syncRes.memory);
         }
-        usedDeepSeekSync = true;
+        if (syncRes && syncRes.mode && syncRes.mode !== "off") {
+            usedContextSync = true;
+        }
     }
 
-    if (allowPostSteps && !usedDeepSeekSync && learnMemory) {
+    if (allowPostSteps && !usedContextSync && learnMemory) {
         var learnedItems = extractTranslationMemory(model, apiKeys, text, finalText, from, to, memoryContext.prompt, bookId);
         persistTranslationMemory(memoryContext, text, learnedItems);
     }
@@ -796,8 +798,8 @@ function shouldRepairChinese(translated, original, from, to) {
     if (!readBoolean("retry_untranslated_chinese", true)) return false;
     if (translationWritesHan(to) || !isChineseSource(original, from)) return false;
     var count = countChinese(translated);
-    var hasDs = typeof llmHasDeepSeek === "function" && llmHasDeepSeek();
-    var minThreshold = (!hasDs && readBoolean("free_tier_eco_mode", true)) ? 8 : 1;
+    var useDsRepair = typeof llmHasDeepSeek === "function" && llmHasDeepSeek() && readBoolean("deepseek_context_engine", false);
+    var minThreshold = (!useDsRepair && readBoolean("free_tier_eco_mode", true)) ? 8 : 1;
     if (count < minThreshold) return false;
     return true;
 }
@@ -882,23 +884,38 @@ function translateChineseFragmentsOnce(model, apiKeys, items, to, memoryPrompt, 
 
     try {
         var response;
-        if (typeof llmHasDeepSeek === "function" && llmHasDeepSeek()) {
+        var useDs = typeof llmHasDeepSeek === "function" && llmHasDeepSeek() && readBoolean("deepseek_context_engine", false);
+        var reqBodyItems = JSON.stringify({ items: items });
+        var reqTimeout = repairTimeoutMs || 30000;
+        if (useDs) {
             response = llmDeepSeekRequest(
                 instruction,
-                JSON.stringify({ items: items }),
+                reqBodyItems,
                 { temperature: 0, maxTokens: Math.min(maxOutputTokens || 4096, 4096), json: true },
-                repairTimeoutMs || 30000
+                reqTimeout
             );
+            if ((!response || response.error) && Array.isArray(apiKeys) && apiKeys.length > 0) {
+                response = llmRequest(
+                    apiKeys,
+                    llmBuildBody(LLM_ANALYSIS_MODEL, instruction, reqBodyItems, {
+                        temperature: 0,
+                        maxTokens: Math.min(maxOutputTokens || 4096, 4096),
+                        json: true,
+                        bookId: bookId
+                    }),
+                    reqTimeout
+                );
+            }
         } else {
             response = llmRequest(
                 apiKeys,
-                llmBuildBody(LLM_ANALYSIS_MODEL, instruction, JSON.stringify({ items: items }), {
+                llmBuildBody(LLM_ANALYSIS_MODEL, instruction, reqBodyItems, {
                     temperature: 0,
                     maxTokens: Math.min(maxOutputTokens || 4096, 4096),
                     json: true,
                     bookId: bookId
                 }),
-                repairTimeoutMs || 30000
+                reqTimeout
             );
         }
         if (response.error) return null;

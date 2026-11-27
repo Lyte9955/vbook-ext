@@ -214,9 +214,16 @@ function analysisRequest(apiKeys, chapter, text, blockIndex, blockCount, memoryC
     userText += "\n\nNỘI DUNG CẦN PHÂN TÍCH:\n" + text;
 
     var result;
-    if (typeof llmHasDeepSeek === "function" && llmHasDeepSeek()) {
-        // Khi đã có DeepSeek key: chỉ dùng DeepSeek phân tích (không đốt quota Gemini và báo rõ lỗi DeepSeek nếu có)
+    var useDs = typeof llmHasDeepSeek === "function" && llmHasDeepSeek() && llmReadBoolConfig("deepseek_context_engine", false);
+    if (useDs) {
         result = llmDeepSeekRequest(instruction, userText, { temperature: 0.1, maxTokens: 4096, json: true }, 65000);
+        if ((result.error || !result.text) && apiKeys.length > 0) {
+            result = llmRequest(
+                apiKeys,
+                llmBuildBody(LLM_ANALYSIS_MODEL, instruction, userText, { temperature: 0.1, maxTokens: 4096, json: true, bookId: bookId || "" }),
+                65000
+            );
+        }
     } else {
         result = llmRequest(
             apiKeys,

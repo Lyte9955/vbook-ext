@@ -9,6 +9,7 @@ var DS_DEFAULT_ENDPOINT = "https://api.gitapihub.com/v1/chat/completions";
 var DS_DEFAULT_MODEL = "deepseek-flash";
 var DS_AUTH_STATUSES = { 401: true, 402: true, 403: true };
 var DS_ROTATE_STATUSES = { 429: true, 500: true, 502: true, 503: true, 504: true };
+var DS_COOLDOWN_AUTH_MS = 6 * 3600000;
 
 var LLM_STATE_KEY = "gemini_ft_state_v2";
 var LLM_ERROR_LOG_KEY = "gemini_recent_errors_v1";
@@ -158,8 +159,8 @@ function llmAddDeepSeekConfig(config) {
     };
     config[translationConfigKey("deepseek_context_engine")] = {
         title: "2.2. DeepSeek nhớ mạch truyện & học tên riêng",
-        subtitle: "Cập nhật trạng thái cảnh & xưng hô sau mỗi chương (không làm lỗi chương nếu DeepSeek tạm bận)",
-        "default": "true",
+        subtitle: "TẮT (Mặc định v38 — tiết kiệm ~95% token DeepSeek): dùng Gemini Flash-Lite (60 key) cập nhật mạch truyện miễn phí, dành DeepSeek chuyên cứu hộ. BẬT: dùng DeepSeek cập nhật mạch truyện & học tên riêng (tự chuyển về Gemini nếu DeepSeek lỗi)",
+        "default": "false",
         mode: "toggle"
     };
     config[translationConfigKey("deepseek_memory_interval")] = {
@@ -249,7 +250,18 @@ function llmReadDeepSeekKeys() {
 
 function llmHasDeepSeek() {
     if (!llmReadBoolConfig("enable_deepseek", true)) return false;
-    return llmReadDeepSeekKeys().length > 0;
+    var dsKeys = llmReadDeepSeekKeys();
+    if (dsKeys.length === 0) return false;
+    var now = new Date().getTime();
+    var state = llmLoadState(now);
+    if (!state.dsAuthDead) return true;
+    for (var i = 0; i < dsKeys.length; i++) {
+        var fp = llmKeyFingerprint(dsKeys[i]);
+        if (!state.dsAuthDead[fp] || Number(state.dsAuthDead[fp]) <= now) {
+            return true;
+        }
+    }
+    return false;
 }
 
 function llmNormalizeModel(model) {
@@ -361,13 +373,20 @@ function llmDeepSeekRequest(systemPrompt, userText, options, timeout) {
     var isShortSync = Boolean(timeout && timeout <= 30000);
     var dsStart = new Date().getTime();
     var dsBudget = isShortSync ? timeout : Math.max(timeout || 45000, 70000);
+    var dsState = llmLoadState(dsStart);
     var deadDsIdx = {};
     var lastError = "";
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
-        var dsRem = dsBudget - (new Date().getTime() - dsStart);
+        var attemptNow = new Date().getTime();
+        var dsRem = dsBudget - (attemptNow - dsStart);
         if (attempt > 0 && dsRem < 8000) break;
         var i = attempt % dsKeys.length;
         if (deadDsIdx[i]) continue;
+        var dsFp = llmKeyFingerprint(dsKeys[i]);
+        if (dsState.dsAuthDead && Number(dsState.dsAuthDead[dsFp] || 0) > attemptNow) {
+            deadDsIdx[i] = true;
+            continue;
+        }
         // Nếu lượt 1 dùng rescue model chậm bị 504/lỗi, lượt 2 tự hạ về model nhanh (deepseek-flash)
         var activeModel = (attempt > 0 && dsModel !== fallbackModel) ? fallbackModel : dsModel;
         var isSlowPrimaryDs = (attempt === 0 && dsModel !== fallbackModel && hasFallbackAttempt && !isShortSync);
@@ -397,7 +416,8 @@ function llmDeepSeekRequest(systemPrompt, userText, options, timeout) {
             continue;
         }
 
-        var dsRespSec = Math.round((new Date().getTime() - dsReqAt) / 1000);
+        var dsRespTime = new Date().getTime();
+        var dsRespSec = Math.round((dsRespTime - dsReqAt) / 1000);
         var rawText = "";
         try { rawText = String(response.text() || ""); } catch (eRead) {}
 
@@ -409,6 +429,12 @@ function llmDeepSeekRequest(systemPrompt, userText, options, timeout) {
             lastError = "DeepSeek [" + activeModel + "] HTTP " + response.status + " (" + dsRespSec + "s)" + (msg ? ": " + msg : "");
             if (DS_AUTH_STATUSES[response.status]) {
                 deadDsIdx[i] = true;
+                if (!dsState.dsAuthDead) dsState.dsAuthDead = {};
+                dsState.dsAuthDead[dsFp] = dsRespTime + DS_COOLDOWN_AUTH_MS;
+                llmSaveState(dsState);
+                if (typeof llmRecordError === "function") {
+                    llmRecordError("DS_AUTH", "Tạm ngắt DeepSeek key #" + (i + 1) + " 6h sau HTTP " + response.status);
+                }
                 if (dsKeys.length > 1) continue;
                 return { text: "", finishReason: "", error: lastError, keyIndex: i };
             }
@@ -566,8 +592,14 @@ function llmCommitSyncCounter(bookId, nextCount) {
     } catch (e) {}
 }
 
-function llmDeepSeekSyncContextAndMemory(bookId, original, translated, sourceName, targetName, memoryPrompt, syncTimeoutMs) {
-    if (!bookId || !llmHasDeepSeek() || !llmReadBoolConfig("deepseek_context_engine", true)) {
+function llmDeepSeekSyncContextAndMemory(bookId, original, translated, sourceName, targetName, memoryPrompt, syncTimeoutMs, apiKeys) {
+    if (!bookId) {
+        return { storyState: "", memory: [], mode: "off" };
+    }
+
+    var useDs = llmHasDeepSeek() && llmReadBoolConfig("deepseek_context_engine", false);
+    var gemKeys = (Array.isArray(apiKeys) && apiKeys.length > 0) ? apiKeys : llmReadGeminiKeys();
+    if (!useDs && gemKeys.length === 0) {
         return { storyState: "", memory: [], mode: "off" };
     }
 
@@ -604,7 +636,24 @@ function llmDeepSeekSyncContextAndMemory(bookId, original, translated, sourceNam
     }
 
     try {
-        var res = llmDeepSeekRequest(instruction, userText, { temperature: 0.1, maxTokens: maxTokens, json: true }, syncTimeoutMs || 25000);
+        var res;
+        var reqTimeout = syncTimeoutMs || 25000;
+        if (useDs) {
+            res = llmDeepSeekRequest(instruction, userText, { temperature: 0.1, maxTokens: maxTokens, json: true }, reqTimeout);
+            if ((res.error || !res.text) && gemKeys.length > 0) {
+                res = llmRequest(
+                    gemKeys,
+                    llmBuildBody(LLM_ANALYSIS_MODEL, instruction, userText, { temperature: 0.1, maxTokens: maxTokens, json: true, bookId: bookId }),
+                    reqTimeout
+                );
+            }
+        } else {
+            res = llmRequest(
+                gemKeys,
+                llmBuildBody(LLM_ANALYSIS_MODEL, instruction, userText, { temperature: 0.1, maxTokens: maxTokens, json: true, bookId: bookId }),
+                reqTimeout
+            );
+        }
         if (res.error || !res.text) return { storyState: "", memory: [], mode: includeMemory ? "full" : "lite" };
         var parsed = llmExtractJsonObject(res.text);
         if (!parsed) return { storyState: "", memory: [], mode: includeMemory ? "full" : "lite" };
@@ -642,7 +691,7 @@ function llmNextPacificMidnightMs(now) {
 }
 
 function llmLoadState(now) {
-    var state = { cursor: 0, stickyByBook: {}, authDead: {}, modelDead: {}, modelOverload: {}, buckets: {} };
+    var state = { cursor: 0, stickyByBook: {}, authDead: {}, dsAuthDead: {}, modelDead: {}, modelOverload: {}, buckets: {} };
     try {
         var raw = localStorage.getItem(LLM_STATE_KEY);
         if (!raw) return state;
@@ -654,6 +703,13 @@ function llmLoadState(now) {
             for (var fp in parsed.authDead) {
                 if (parsed.authDead.hasOwnProperty(fp) && Number(parsed.authDead[fp]) > now) {
                     state.authDead[fp] = Number(parsed.authDead[fp]);
+                }
+            }
+        }
+        if (parsed.dsAuthDead && typeof parsed.dsAuthDead === "object") {
+            for (var dfp in parsed.dsAuthDead) {
+                if (parsed.dsAuthDead.hasOwnProperty(dfp) && Number(parsed.dsAuthDead[dfp]) > now) {
+                    state.dsAuthDead[dfp] = Number(parsed.dsAuthDead[dfp]);
                 }
             }
         }
@@ -705,7 +761,7 @@ function llmLoadState(now) {
 function llmSaveState(state) {
     try {
         var now = new Date().getTime();
-        var compact = { cursor: state.cursor || 0, stickyByBook: {}, authDead: {}, modelDead: {}, modelOverload: {}, buckets: {} };
+        var compact = { cursor: state.cursor || 0, stickyByBook: {}, authDead: {}, dsAuthDead: {}, modelDead: {}, modelOverload: {}, buckets: {} };
         var bookKeys = [];
         for (var bk in state.stickyByBook) {
             if (state.stickyByBook.hasOwnProperty(bk)) bookKeys.push(bk);
@@ -717,6 +773,13 @@ function llmSaveState(state) {
         for (var fp in state.authDead) {
             if (state.authDead.hasOwnProperty(fp) && Number(state.authDead[fp]) > now) {
                 compact.authDead[fp] = Number(state.authDead[fp]);
+            }
+        }
+        if (state.dsAuthDead) {
+            for (var dfp in state.dsAuthDead) {
+                if (state.dsAuthDead.hasOwnProperty(dfp) && Number(state.dsAuthDead[dfp]) > now) {
+                    compact.dsAuthDead[dfp] = Number(state.dsAuthDead[dfp]);
+                }
             }
         }
         if (state.modelDead) {
@@ -782,6 +845,7 @@ function llmResetKeyState(clearLogs) {
                 cursor: keepCursor,
                 stickyByBook: {},
                 authDead: {},
+                dsAuthDead: {},
                 modelDead: {},
                 modelOverload: {},
                 buckets: {}
