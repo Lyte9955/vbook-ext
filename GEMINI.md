@@ -1,54 +1,35 @@
 # Dự án vBook Extension: Gemini + DeepSeek Hybrid
 
 ## 1. Tổng quan & Trạng thái hiện tại
-- **Phiên bản hiện tại**: `v37` (ổn định, đã kiểm thử).
+- **Phiên bản hiện tại**: `v40` (13/13 test PASS).
 - **Kho GitHub kệ vBook**: `Lyte9955/vbook-ext` (nhánh `main`).
 - **Link kệ trên vBook**: `https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/plugin.json`
+- **App mục tiêu**: vBook Android `1.2.9` (APK tham khảo ở `tools/`, đã bị `.gitignore`).
 - **Tài nguyên của người dùng**:
-  - **60 API key Google Gemini** (6 tài khoản × 10 project, đã xếp xen kẽ sẵn theo thứ tự tài khoản).
-  - **1 API key DeepSeek (Gitapihub)**: `https://api.gitapihub.com/v1/chat/completions`.
+  - **60 API key Google Gemini** (6 tài khoản × 10 project, xếp xen kẽ).
+  - **1 API key DeepSeek (Gitapihub)**: `https://api.gitapihub.com/v1/chat/completions` — chỉ dùng **cứu hộ**.
   - **Cấu hình vBook Android**: 1 luồng, giãn cách `1000ms`, tắt Cronet, thử lại `5` lần; `max_length: 4500`, `max_line: 180`.
 
 ## 2. Cấu trúc thư mục & Quy tắc đóng gói BẮT BUỘC
-- `plugin.json` (gốc): Danh mục kệ vBook. **BẮT BUỘC** giữ cố định `"path"` trỏ tới `gemini-deepseek-hybrid/plugin.zip` (KHÔNG đổi tên thành `plugin-vXX.zip` để vBook nhận cập nhật trực tiếp).
-- `gemini-deepseek-hybrid/src/*.js`: 15 tệp mã nguồn JS thuần **ES5 / Mozilla Rhino**.
-- `gemini-deepseek-hybrid/plugin.json`: Metadata nội bộ của extension (số `version` phải khớp với `plugin.json` gốc và chuỗi phiên bản trong `src/status-check.js`).
-- `gemini-deepseek-hybrid/plugin.zip`: Gói đóng sẵn cho vBook (ở gốc zip chỉ chứa `icon.png`, `plugin.json`, `src/*.js` — không có thư mục bọc ngoài).
-- `scripts/build.py`: Tự kiểm tra cú pháp, chạy test và đóng gói `gemini-deepseek-hybrid/plugin.zip`.
-- `tests/run_tests.js`: Bộ kiểm thử mô phỏng runtime vBook Android trên Node.js.
+- `plugin.json` (gốc): **BẮT BUỘC** giữ `"path"` trỏ tới `gemini-deepseek-hybrid/plugin.zip`.
+- `gemini-deepseek-hybrid/src/*.js`: 15 tệp JS thuần **ES5 / Mozilla Rhino**.
+- `gemini-deepseek-hybrid/plugin.json`: `version` phải khớp `plugin.json` gốc và `src/status-check.js`.
+- `gemini-deepseek-hybrid/plugin.zip`: gốc zip chỉ chứa `icon.png`, `plugin.json`, `src/*.js`.
+- `scripts/build.py`: kiểm tra cú pháp, chạy test, đóng gói (`--bump` để tăng version).
+- `tests/run_tests.js`: 13 test mô phỏng runtime vBook trên Node.js.
+- Môi trường Windows: Node.js LTS + Git đã cài qua winget; cần nạp lại PATH (`Machine` + `User`) trước khi gọi `node`/`git`; dùng `python` (không phải `python3`).
 
-## 3. Các tính năng cốt lõi đang có ở v37
-1. **Xoay vòng 60 key Gemini (`src/llm.js`)**:
-   - Gọi tuần tự từ trên xuống dưới (`sequential_key_order`, mặc định BẬT), tự lướt qua key chết 401/403 và quét trọn 60/60 key khi gặp 429 RPD/RPM nhanh (`< 8s`).
-   - Ngân sách thời gian: lượt 1 tối đa `38s` / trần tường `95s`; gặp HTTP 504 ở model nặng (`4-hydrogen`, `3.8-flash`, `3.6-flash`) nhảy thẳng sang `gemini-3.5-flash-lite`.
-   - **Circuit Breaker (`modelOverload`)**: model nặng dính 504 `>= 25s` hoặc 2 lỗi liên tiếp tự tạm tránh `10 phút` trên toàn bộ 60 key. Cache model 404 (`modelDead` 1 giờ).
-2. **Công tắc tổng DeepSeek (`2.0. enable_deepseek`)**:
-   - BẬT: DeepSeek quản lý `story_state`, học bộ nhớ, sửa chữ Hán sót, cứu hộ khi Gemini lỗi (`deepseek-flash` cap `50s`, model chậm cap `35s` để kịp hạ về `deepseek-flash`), phân tích nhân vật (`analyze-memory.js` chỉ dùng DeepSeek khi bật).
-   - TẮT: Chạy thuần Gemini 100%, không cần xóa key ở mục 2.1.
-3. **Chế độ QT-Polish (`3.5. qt_polish_mode` & `3.6. qt_polish_include_raw`)**:
-   - Gọi `Qt.translate` của vBook dịch thô trước để chốt tên riêng từ bộ Names/VietPhrase, sau đó AI biên tập mượt.
-   - Có **Adaptive Gate** (`8%–25%` sót Hán tự kèm nguyên văn; `> 25%` bỏ QT dịch thẳng) và **Echo-Guard** (chống AI chép nguyên bản convert).
-4. **Khóa cứng đại từ Trung văn & Chuẩn hóa TTS (`src/translate.js`, `src/prompts.js`)**:
-   - `<hard_pronoun_lock>` đặt ở **cuối cùng** `systemInstruction` (Recency priority): khóa cứng `我=ta`, `你=ngươi`, `您=ngài`, `我们/咱们=chúng ta`, `你们=các ngươi`, `他=hắn/y/gã/lão`, `她=nàng/cô`. Cấm `tôi`, `tớ`, `cậu`, `mình`, `bạn`, `anh/em`, `chú/cháu`, `tao/mày`, `anh ấy/cô ấy`. (Lưu ý: để trống mục `4.6` nếu không muốn ghi đè `<hard_pronoun_lock>`).
-   - `sanitizeTranslationOutput()` chuẩn hóa dấu câu CJK full-width (`，。：；！？……——`), đổi `《...》` → `'...'`, xóa dòng `——————`, chuẩn khoảng trắng TTS (bảo vệ tuyệt đối URL, HTML, số liệu).
-5. **Hệ thống 6 Action (`src/action.js`)**:
-   - `1. status-check.js`: Bảng theo dõi 60 key (`#X/60`, số key SẴN SÀNG theo model, `modelOverload`, trạng thái DeepSeek & QT-Polish).
-   - `2. analyze-memory.js`: Phân tích nhân vật/quan hệ (khối 12k ký tự, bỏ qua chương lỗi không dừng cả lô).
-   - `3. capture-context.js`: Thu thập ngữ cảnh (`story_state` + cầu nối) từ chương đang mở (Head 4k + Tail 6k, giữ nguyên RPD 60 key).
-   - `4. reset-context.js`: Chỉ xóa ngữ cảnh truyện hiện tại (giữ nguyên RPD key).
-   - `5. reset-keys.js`: Chỉ gỡ cooldown key (giữ nguyên vị trí con trỏ, nhật ký lỗi và ngữ cảnh truyện).
-   - `6. reset-defaults.js`: Khôi phục cài đặt gốc + dọn token Baidu.
+## 3. Kiến trúc v40: "60 key Gemini gánh 99%, DeepSeek chỉ cứu hộ"
+1. **Dịch chính (`src/llm.js`)**: xoay vòng tuần tự 60 key, lướt key 401/403 và 429; Circuit Breaker né model nặng 10 phút khi 504; cache model 404.
+2. **Ngữ cảnh truyện**: mục `2.2` mặc định **TẮT** → `gemini-3.5-flash-lite` cập nhật `story_state` theo chu kỳ mục `2.2b` (mặc định 2 chương); cầu nối cuối chương lưu mọi chương. `2.2` BẬT → DeepSeek, lỗi thì tự rơi về Gemini.
+3. **DeepSeek cứu hộ (`2.4`)**: khi Gemini chặn `PROHIBITED_CONTENT/SAFETY`, cắt `max_tokens`, hoặc lỗi toàn chuỗi model.
+4. **Cầu dao DeepSeek**: HTTP 401/402/403 → tạm ngắt key 6 giờ (`dsAuthDead` trong `gemini_ft_state_v2`); `reset-keys` gỡ ngay.
+5. **QT-Polish (`3.5`/`3.6`)** + Adaptive Gate (8–25% sót Hán tự kèm nguyên văn, >25% bỏ QT) + Echo-Guard (bản QT ≥200 ký tự bị chép y nguyên thì dịch lại).
+6. **Đồng bộ từ điển QuickTranslator (`4.2b`/`4.2c`)**: từ AI học được lưu vào `translation_memory`, đồng thời chờ xuất hiện lại ở chương sau (mặc định 2 lần) mới ghi sang `localBook.addQtName` / `localBook.addQtVietPhrase`; không bao giờ ghi đè từ đã có; nhật ký 30 từ gần nhất hiện trong `status-check`. vBook 1.2.9 **không có API xóa**, sửa từ sai thủ công trong vBook.
+7. **Khóa cứng đại từ & chuẩn hóa TTS (`src/translate.js`)**: `<hard_pronoun_lock>` luôn ở cuối `systemInstruction`; `sanitizeTranslationOutput()` chuẩn hóa dấu câu CJK và khoảng trắng.
+8. **6 Action**: `status-check`, `analyze-memory`, `capture-context`, `reset-context`, `reset-keys`, `reset-defaults`.
 
-## 4. Quy trình làm việc chuẩn trên Antigravity
-1. Chỉnh sửa mã nguồn trong `gemini-deepseek-hybrid/src/`.
-2. Chạy kiểm thử + đóng gói:
-   ```bash
-   python3 scripts/build.py          # Kiểm thử & đóng gói giữ nguyên version
-   python3 scripts/build.py --bump   # Tăng version +1 (vd 37 -> 38), kiểm thử & đóng gói
-   ```
-3. Commit và đẩy lên nhánh `main` của `Lyte9955/vbook-ext`:
-   ```bash
-   git add plugin.json gemini-deepseek-hybrid/
-   git commit -m "chore: release v38"
-   git push origin main
-   ```
+## 4. Quy trình làm việc chuẩn
+1. Sửa mã trong `gemini-deepseek-hybrid/src/` (chỉ ES5).
+2. `python scripts/build.py --bump` → phải đạt 100% test PASS.
+3. `git add plugin.json gemini-deepseek-hybrid/ tests/` → `git commit -m "chore: release vXX"` → `git push origin main`.

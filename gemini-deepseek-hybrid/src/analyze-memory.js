@@ -360,7 +360,7 @@ function analysisBuildMemoryContext(memory, text) {
     return lines.join("\n");
 }
 
-function analysisSyncToQt(items, chinese, chineseTarget) {
+function analysisSyncToQt(items, chinese, chineseTarget, bookId) {
     if (!chinese || chineseTarget) return;
     if (analysisReadConfig("sync_memory_to_qt", "true") !== "true") return;
     if (!Array.isArray(items) || items.length === 0) return;
@@ -384,11 +384,11 @@ function analysisSyncToQt(items, chinese, chineseTarget) {
 
         if (kind === "character" || kind === "place" || kind === "organization") {
             if (canAddName && !qtNames[src]) {
-                try { localBook.addQtName(src, tgt); qtNames[src] = tgt; } catch (e1) {}
+                try { localBook.addQtName(src, tgt); qtNames[src] = tgt; llmQtAppendSyncLog(bookId, src, tgt); } catch (e1) {}
             }
         } else {
             if (canAddVp && !qtVp[src] && !qtNames[src]) {
-                try { localBook.addQtVietPhrase(src, tgt); qtVp[src] = tgt; } catch (e2) {}
+                try { localBook.addQtVietPhrase(src, tgt); qtVp[src] = tgt; llmQtAppendSyncLog(bookId, src, tgt); } catch (e2) {}
             }
         }
     }
@@ -441,7 +441,7 @@ function analysisMergeEntities(bookId, memory, entities, text, position, chinese
     } catch (e) {
         upserted = 0;
     }
-    analysisSyncToQt(qtSyncItems, chinese, chineseTarget);
+    analysisSyncToQt(qtSyncItems, chinese, chineseTarget, bookId);
     return upserted;
 }
 

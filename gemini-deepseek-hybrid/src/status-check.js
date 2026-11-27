@@ -42,7 +42,7 @@ function execute() {
         }
 
         var lines = [];
-        lines.push("Phiên bản extension: v39");
+        lines.push("Phiên bản extension: v40");
         var aliveKeys = Math.max(0, gemKeys.length - deadAuth);
         var nextCursorPos = gemKeys.length > 0 ? ((state.cursor % gemKeys.length) + 1) : 0;
         lines.push("Gemini API keys: " + gemKeys.length + " key (sống: " + aliveKeys + ", lỗi 401/403: " + deadAuth + ")");
@@ -124,6 +124,18 @@ function execute() {
                 var syncCnt = "";
                 try { syncCnt = String(localStorage.getItem(LLM_DS_SYNC_COUNT_PREFIX + bid) || ""); } catch (eSc) {}
                 if (syncCnt) lines.push("Số lượt đồng bộ ngữ cảnh: " + syncCnt);
+                var qtLog = typeof llmQtLoadSyncLog === "function" ? llmQtLoadSyncLog(bid) : [];
+                if (qtLog.length > 0) {
+                    lines.push("Từ mới đã ghi sang QT (gần nhất): " + qtLog.slice(Math.max(0, qtLog.length - 5)).join(", ") + " (nhật ký: " + qtLog.length + " từ)");
+                }
+                var qtPendingCnt = 0;
+                try {
+                    var qtPend = JSON.parse(String(localStorage.getItem(LLM_QT_PENDING_PREFIX + bid) || "{}"));
+                    for (var qpk in qtPend) {
+                        if (qtPend.hasOwnProperty(qpk)) qtPendingCnt++;
+                    }
+                } catch (eQp) {}
+                if (qtPendingCnt > 0) lines.push("Từ mới đang chờ xuất hiện lại trước khi ghi QT: " + qtPendingCnt);
             }
         } catch (eBook) {}
 

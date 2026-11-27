@@ -329,7 +329,7 @@ test("10. v39: persistTranslationMemory syncs new names/terms to QT without over
         addQtName: (w, t) => { addedNames.push([w, t]); },
         addQtVietPhrase: (w, t) => { addedVp.push([w, t]); }
     };
-    const ctx = loadSandbox({ sync_memory_to_qt: "true" }, {}, null, { localBook: mockBook });
+    const ctx = loadSandbox({ sync_memory_to_qt: "true", qt_sync_min_hits: "1" }, {}, null, { localBook: mockBook });
     ctx.load("translate.js");
     const memCtx = { bookId: "book_test", chinese: true, to: "vi", existing: {} };
     const orig = "林御 và 黎念 đi vào 青山精神病院 cùng 副本 và 诡异道具.";
@@ -356,6 +356,85 @@ test("10. v39: persistTranslationMemory syncs new names/terms to QT without over
     ]);
     assert.strictEqual(addedOff.length, 0);
     return "QT dictionary sync + no-overwrite + toggle OFF OK";
+});
+
+// 11. v40: Echo-Guard catches short (~250 char) unedited QT echo
+test("11. v40: Echo-Guard catches short (~250 char) unedited QT echo", () => {
+    const qtDraft = "Lâm Ngự đẩy cửa bước vào đại sảnh mờ tối, nhìn quanh một vòng rồi chậm rãi đi tới trước bức tranh sơn dầu treo trên tường. Hắn nhíu mày quan sát thật lâu, trong lòng thầm cảnh giác, sau đó mới quay đầu nói với đồng đội phía sau rằng nơi này không đơn giản.";
+    const polished = "Lâm Ngự đẩy cửa bước vào đại sảnh tối om. Hắn đảo mắt một vòng, rồi thong thả tiến đến trước bức tranh sơn dầu treo trên tường.";
+    let calls = 0;
+    const ctx = loadSandbox(
+        { api_key_lines: "AIza1", enable_deepseek: "false", qt_polish_mode: "true", use_context_bridge: "false", free_tier_model_cascade: "false" },
+        {},
+        () => {
+            calls++;
+            const out = calls === 1 ? qtDraft : polished;
+            return { ok: true, status: 200, text: () => JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: out }] } }] }) };
+        },
+        { Qt: { translate: () => ({ translateText: qtDraft }) } }
+    );
+    ctx.load("translate.js");
+    const res = ctx.execute("林御推开门走进昏暗的大厅。", "zh-CN", "vi", "chapterContent", "gemini-3.5-flash-lite", "vo-han-luu");
+    assert.strictEqual(res.ok, true);
+    assert.strictEqual(calls, 2);
+    assert.strictEqual(res.data, polished);
+    return "Short QT echo retried";
+});
+
+// 12. v40: QT sync waits for 2nd sighting and logs writes
+test("12. v40: QT sync waits for 2nd sighting (qt_sync_min_hits=2) and logs writes", () => {
+    const addedNames = [];
+    const store = {};
+    const mockBook = {
+        getInfo: () => ({ id: "book_test", lastReadChapterIndex: 1 }),
+        getNames: () => ({}),
+        getQtNames: () => ({}),
+        getQtVietPhrases: () => ({}),
+        addQtName: (w, t) => { addedNames.push([w, t]); },
+        addQtVietPhrase: () => {}
+    };
+    const ctx = loadSandbox({ sync_memory_to_qt: "true" }, store, null, { localBook: mockBook });
+    ctx.load("translate.js");
+    ctx.persistTranslationMemory({ bookId: "book_test", chinese: true, to: "vi", existing: {} }, "黎念出现了。", [
+        { source: "黎念", target: "Lê Niệm", kind: "character" }
+    ]);
+    assert.strictEqual(addedNames.length, 0);
+    assert.ok(store.gemini_qt_pending_v1_book_test.includes("黎念"));
+    assert.strictEqual(ctx.qtPromotePendingTerms("book_test", "今天天气很好。"), 0);
+    assert.strictEqual(addedNames.length, 0);
+    assert.strictEqual(ctx.qtPromotePendingTerms("book_test", "黎念又来了。"), 1);
+    assert.deepStrictEqual(addedNames, [["黎念", "Lê Niệm"]]);
+    assert.ok(!store.gemini_qt_pending_v1_book_test.includes("黎念"));
+    assert.ok(store.gemini_qt_synced_log_v1_book_test.includes("黎念=Lê Niệm"));
+    return "Pending gate + promote + log OK";
+});
+
+// 13. v40: context_sync_interval=2 (default) -> story_state update on calls 1 and 3 only
+test("13. v40: context_sync_interval=2 runs story_state update on chapters 1 and 3 only", () => {
+    let gemCalls = 0;
+    const ctx = loadSandbox(
+        { api_key_lines: "AIza1", enable_deepseek: "false", deepseek_memory_interval: "0", free_tier_model_cascade: "false" },
+        {},
+        () => {
+            gemCalls++;
+            return {
+                ok: true,
+                status: 200,
+                text: () => JSON.stringify({
+                    candidates: [{
+                        finishReason: "STOP",
+                        content: { parts: [{ text: JSON.stringify({ story_state: "[BỐI CẢNH] Lâm Ngự đang ở đại sảnh nhà hát cổ. [XƯNG HÔ] ta - ngươi." }) }] }
+                    }]
+                })
+            };
+        }
+    );
+    ctx.load("llm.js");
+    for (let i = 0; i < 3; i++) {
+        ctx.llmDeepSeekSyncContextAndMemory("book_test", "原文", "Bản dịch chương thử nghiệm.", "tiếng Trung", "tiếng Việt", "", 20000, ["AIza1"]);
+    }
+    assert.strictEqual(gemCalls, 2);
+    return "Interval 2 -> 2/3 calls";
 });
 
 let passed = 0;

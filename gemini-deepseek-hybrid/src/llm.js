@@ -17,6 +17,9 @@ var LLM_MAX_ERROR_LOG = 5;
 var LLM_CONTEXT_BRIDGE_PREFIX = "gemini_ctx_bridge_v1_";
 var LLM_STORY_STATE_PREFIX = "gemini_story_state_v1_";
 var LLM_DS_SYNC_COUNT_PREFIX = "gemini_ds_sync_cnt_v1_";
+var LLM_CTX_TICK_PREFIX = "gemini_ctx_tick_v1_";
+var LLM_QT_PENDING_PREFIX = "gemini_qt_pending_v1_";
+var LLM_QT_SYNC_LOG_PREFIX = "gemini_qt_synced_log_v1_";
 var LLM_CONTEXT_BRIDGE_MAX_CHARS = 450;
 var LLM_STORY_STATE_MAX_CHARS = 900;
 
@@ -162,6 +165,13 @@ function llmAddDeepSeekConfig(config) {
         subtitle: "TẮT (Mặc định v38 — tiết kiệm ~95% token DeepSeek): dùng Gemini Flash-Lite (60 key) cập nhật mạch truyện miễn phí, dành DeepSeek chuyên cứu hộ. BẬT: dùng DeepSeek cập nhật mạch truyện & học tên riêng (tự chuyển về Gemini nếu DeepSeek lỗi)",
         "default": "false",
         mode: "toggle"
+    };
+    config[translationConfigKey("context_sync_interval")] = {
+        title: "2.2b. Chu kỳ cập nhật mạch truyện (số chương)",
+        subtitle: "Mặc định 2 (giảm ~50% request phụ); nhập 1 để cập nhật sau mỗi chương. Cầu nối cuối chương vẫn lưu sau mọi chương",
+        "default": "2",
+        mode: "input",
+        format: "number"
     };
     config[translationConfigKey("deepseek_memory_interval")] = {
         title: "2.3. Chu kỳ học tên riêng mới (số chương)",
@@ -612,6 +622,18 @@ function llmDeepSeekSyncContextAndMemory(bookId, original, translated, sourceNam
         return { storyState: "", memory: [], mode: "off" };
     }
 
+    var ctxIntervalRaw = parseInt(llmReadConfig("context_sync_interval", "2"), 10);
+    var ctxInterval = isNaN(ctxIntervalRaw) || ctxIntervalRaw < 1 ? 1 : ctxIntervalRaw;
+    var tick = 1;
+    try {
+        var rawTick = parseInt(String(localStorage.getItem(LLM_CTX_TICK_PREFIX + String(bookId)) || ""), 10);
+        if (!isNaN(rawTick) && rawTick >= 0) tick = rawTick + 1;
+        localStorage.setItem(LLM_CTX_TICK_PREFIX + String(bookId), String(tick));
+    } catch (eTick) {}
+    if (!includeMemory && ctxInterval > 1 && ((tick - 1) % ctxInterval) !== 0) {
+        return { storyState: "", memory: [], mode: "skip" };
+    }
+
     var prevState = llmLoadStoryState(bookId);
     var instruction;
     var userText = "";
@@ -664,6 +686,30 @@ function llmDeepSeekSyncContextAndMemory(bookId, original, translated, sourceNam
         return { storyState: nextState, memory: mem, mode: includeMemory ? "full" : "lite" };
     } catch (e) {
         return { storyState: "", memory: [], mode: includeMemory ? "full" : "lite" };
+    }
+}
+
+// === Nhật ký từ mới đã ghi sang từ điển QuickTranslator (để người dùng tự kiểm tra/sửa trong vBook) ===
+function llmQtAppendSyncLog(bookId, source, target) {
+    if (!bookId) return;
+    try {
+        var key = LLM_QT_SYNC_LOG_PREFIX + String(bookId);
+        var list = [];
+        try { list = JSON.parse(String(localStorage.getItem(key) || "[]")); } catch (eP) { list = []; }
+        if (!Array.isArray(list)) list = [];
+        list.push(String(source) + "=" + String(target));
+        if (list.length > 30) list = list.slice(list.length - 30);
+        localStorage.setItem(key, JSON.stringify(list));
+    } catch (e) {}
+}
+
+function llmQtLoadSyncLog(bookId) {
+    if (!bookId) return [];
+    try {
+        var list = JSON.parse(String(localStorage.getItem(LLM_QT_SYNC_LOG_PREFIX + String(bookId)) || "[]"));
+        return Array.isArray(list) ? list : [];
+    } catch (e) {
+        return [];
     }
 }
 

@@ -191,6 +191,10 @@ function execute(text, from, to, source, model, style) {
         }
     }
 
+    if (source === "chapterContent" && bookId && to === "vi" && isChineseSource(text, from)) {
+        qtPromotePendingTerms(bookId, text);
+    }
+
     if (source === "chapterContent" && bookId && typeof llmSaveContextBridge === "function") {
         llmSaveContextBridge(bookId, finalText);
     }
@@ -729,18 +733,68 @@ function sanitizeTranslationOutput(text, original, to) {
     return out.trim();
 }
 
-function syncItemsToQtDictionary(items, isChinese, to) {
+function qtWriteEntry(src, tgt, kind, qtNames, qtVp, bookId) {
+    var canAddName = typeof localBook !== "undefined" && localBook && typeof localBook.addQtName === "function";
+    var canAddVp = typeof localBook !== "undefined" && localBook && typeof localBook.addQtVietPhrase === "function";
+    if (kind === "character" || kind === "place" || kind === "organization") {
+        if (canAddName && !qtNames[src]) {
+            try {
+                localBook.addQtName(src, tgt);
+                qtNames[src] = tgt;
+                llmQtAppendSyncLog(bookId, src, tgt);
+                return true;
+            } catch (e1) {}
+        }
+    } else if (canAddVp && !qtVp[src] && !qtNames[src]) {
+        try {
+            localBook.addQtVietPhrase(src, tgt);
+            qtVp[src] = tgt;
+            llmQtAppendSyncLog(bookId, src, tgt);
+            return true;
+        } catch (e2) {}
+    }
+    return false;
+}
+
+function qtLoadPending(bookId) {
+    try {
+        var parsed = JSON.parse(String(localStorage.getItem(LLM_QT_PENDING_PREFIX + String(bookId)) || "{}"));
+        return (parsed && typeof parsed === "object" && !Array.isArray(parsed)) ? parsed : {};
+    } catch (e) {
+        return {};
+    }
+}
+
+function qtSavePending(bookId, pending) {
+    try {
+        var keys = [];
+        for (var k in pending) {
+            if (pending.hasOwnProperty(k)) keys.push(k);
+        }
+        if (keys.length > 200) {
+            var trimmed = {};
+            for (var i = keys.length - 200; i < keys.length; i++) trimmed[keys[i]] = pending[keys[i]];
+            pending = trimmed;
+        }
+        localStorage.setItem(LLM_QT_PENDING_PREFIX + String(bookId), JSON.stringify(pending));
+    } catch (e) {}
+}
+
+function syncItemsToQtDictionary(items, isChinese, to, bookId) {
     if (!isChinese || to !== "vi" || !readBoolean("sync_memory_to_qt", true)) return;
     if (!Array.isArray(items) || items.length === 0) return;
     var canAddName = typeof localBook !== "undefined" && localBook && typeof localBook.addQtName === "function";
     var canAddVp = typeof localBook !== "undefined" && localBook && typeof localBook.addQtVietPhrase === "function";
     if (!canAddName && !canAddVp) return;
 
+    var minHits = Math.round(readNumber("qt_sync_min_hits", 2, 1, 5));
     var qtNames = {};
     var qtVp = {};
     try { qtNames = localBook.getQtNames() || {}; } catch (eN) {}
     try { qtVp = localBook.getQtVietPhrases() || {}; } catch (eV) {}
 
+    var pending = (minHits > 1 && bookId) ? qtLoadPending(bookId) : null;
+    var pendingChanged = false;
     for (var i = 0; i < items.length; i++) {
         var it = items[i];
         if (!it || !it.source || !it.target) continue;
@@ -749,17 +803,46 @@ function syncItemsToQtDictionary(items, isChinese, to) {
         var kind = String(it.kind || "term");
         if (src.length < 2 || src.length > 20 || tgt.length < 2 || tgt.length > 60) continue;
         if (containsChinese(tgt)) continue;
+        if (qtNames[src] || qtVp[src]) continue;
 
-        if (kind === "character" || kind === "place" || kind === "organization") {
-            if (canAddName && !qtNames[src]) {
-                try { localBook.addQtName(src, tgt); qtNames[src] = tgt; } catch (e1) {}
+        if (pending) {
+            if (!pending[src]) {
+                pending[src] = { t: tgt, k: kind, n: 1 };
+                pendingChanged = true;
             }
         } else {
-            if (canAddVp && !qtVp[src] && !qtNames[src]) {
-                try { localBook.addQtVietPhrase(src, tgt); qtVp[src] = tgt; } catch (e2) {}
-            }
+            qtWriteEntry(src, tgt, kind, qtNames, qtVp, bookId);
         }
     }
+    if (pending && pendingChanged) qtSavePending(bookId, pending);
+}
+
+// Mỗi chương: từ đang chờ nào xuất hiện lại trong nguyên văn thì +1; đủ số lần thì ghi sang QT.
+function qtPromotePendingTerms(bookId, text) {
+    if (!bookId || !readBoolean("sync_memory_to_qt", true)) return 0;
+    var minHits = Math.round(readNumber("qt_sync_min_hits", 2, 1, 5));
+    var pending = qtLoadPending(bookId);
+    var value = String(text || "");
+    var qtNames = {};
+    var qtVp = {};
+    try { qtNames = localBook.getQtNames() || {}; } catch (eN) {}
+    try { qtVp = localBook.getQtVietPhrases() || {}; } catch (eV) {}
+
+    var changed = false;
+    var written = 0;
+    for (var src in pending) {
+        if (!pending.hasOwnProperty(src)) continue;
+        var entry = pending[src];
+        if (!entry || value.indexOf(src) < 0) continue;
+        entry.n = Number(entry.n || 1) + 1;
+        changed = true;
+        if (entry.n >= minHits) {
+            if (qtWriteEntry(src, String(entry.t || ""), String(entry.k || "term"), qtNames, qtVp, bookId)) written++;
+            delete pending[src];
+        }
+    }
+    if (changed) qtSavePending(bookId, pending);
+    return written;
 }
 
 function persistTranslationMemory(context, input, items) {
@@ -796,7 +879,7 @@ function persistTranslationMemory(context, input, items) {
         localDatabase.upsertAll(context.bookId, TRANSLATION_MEMORY_TABLE, records);
     } catch (e) {}
 
-    syncItemsToQtDictionary(qtSyncItems, context.chinese, context.to);
+    syncItemsToQtDictionary(qtSyncItems, context.chinese, context.to, context.bookId);
 }
 
 function extractTranslationMemory(model, apiKeys, original, translated, from, to, memoryPrompt, bookId) {
@@ -1203,15 +1286,17 @@ function repairRetryMarkerLines(model, apiKeys, draft, original, to, memoryPromp
 
     var replacements = null;
     try {
-        var response;
-        if (typeof llmHasDeepSeek === "function" && llmHasDeepSeek()) {
+        var response = null;
+        var useDsRetry = typeof llmHasDeepSeek === "function" && llmHasDeepSeek() && readBoolean("deepseek_context_engine", false);
+        if (useDsRetry) {
             response = llmDeepSeekRequest(
                 instruction,
                 JSON.stringify({ items: retryItems }),
                 { temperature: 0.1, maxTokens: Math.min(maxOutputTokens || 4096, 4096), json: true },
                 timeoutMs || 25000
             );
-        } else {
+        }
+        if (!response || response.error) {
             response = llmRequest(
                 apiKeys,
                 llmBuildBody(LLM_ANALYSIS_MODEL, instruction, JSON.stringify({ items: retryItems }), {
@@ -1303,10 +1388,10 @@ function buildQtPolishInstruction(baseInstruction, includeRaw, hasPronounLock) {
 function isUneditedQtEcho(output, qtDraft) {
     var outClean = String(output || "").replace(/\s+/g, " ").trim();
     var qtClean = String(qtDraft || "").replace(/\s+/g, " ").trim();
-    if (!outClean || !qtClean || qtClean.length < 400) return false;
+    if (!outClean || !qtClean || qtClean.length < 200) return false;
     if (outClean === qtClean) return true;
     var qtWords = translationCompareWords(qtClean);
-    if (qtWords.length < 100) return false;
+    if (qtWords.length < 40) return false;
     var outWords = translationCompareWords(outClean);
     if (Math.abs(outWords.length - qtWords.length) > qtWords.length * 0.1) return false;
     var samePos = 0;

@@ -74,6 +74,13 @@ function execute() {
         "default": "true",
         mode: "toggle"
     };
+    config[translationConfigKey("qt_sync_min_hits")] = {
+        title: "4.2c. Số lần xuất hiện trước khi ghi sang QT",
+        subtitle: "Mặc định 2: từ AI học được phải xuất hiện lại ở chương sau mới ghi vào Names/VietPhrase (chống ghi nhầm). Nhập 1 để ghi ngay",
+        "default": "2",
+        mode: "input",
+        format: "number"
+    };
     config[translationConfigKey("memory_analysis_chapters")] = {
         title: "4.3. Số chương phân tích mỗi lần chạy Action",
         subtitle: "Action 'Phân tích tên nhân vật và quan hệ' sẽ đọc từ chương đang đọc trở đi, tối đa theo số này",
