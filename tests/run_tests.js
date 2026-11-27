@@ -317,6 +317,47 @@ test("9. v38: repairRemainingChinese falls back to Gemini Flash-Lite on DeepSeek
     return "Repair fallback DS->Gemini OK";
 });
 
+// 10. v39: Sync learned names/terms to QuickTranslator dictionaries (addQtName / addQtVietPhrase)
+test("10. v39: persistTranslationMemory syncs new names/terms to QT without overwriting", () => {
+    const addedNames = [];
+    const addedVp = [];
+    const mockBook = {
+        getInfo: () => ({ id: "book_test", lastReadChapterIndex: 1 }),
+        getNames: () => ({}),
+        getQtNames: () => ({ "林御": "Lâm Ngự cũ" }),
+        getQtVietPhrases: () => ({ "副本": "phó bản cũ" }),
+        addQtName: (w, t) => { addedNames.push([w, t]); },
+        addQtVietPhrase: (w, t) => { addedVp.push([w, t]); }
+    };
+    const ctx = loadSandbox({ sync_memory_to_qt: "true" }, {}, null, { localBook: mockBook });
+    ctx.load("translate.js");
+    const memCtx = { bookId: "book_test", chinese: true, to: "vi", existing: {} };
+    const orig = "林御 và 黎念 đi vào 青山精神病院 cùng 副本 và 诡异道具.";
+    ctx.persistTranslationMemory(memCtx, orig, [
+        { source: "林御", target: "Lâm Ngự mới", kind: "character" },
+        { source: "黎念", target: "Lê Niệm", kind: "character" },
+        { source: "青山精神病院", target: "Bệnh viện tâm thần Thanh Sơn", kind: "place" },
+        { source: "副本", target: "phó bản mới", kind: "term" },
+        { source: "诡异道具", target: "đạo cụ quỷ dị", kind: "term" }
+    ]);
+    assert.deepStrictEqual(addedNames, [["黎念", "Lê Niệm"], ["青山精神病院", "Bệnh viện tâm thần Thanh Sơn"]]);
+    assert.deepStrictEqual(addedVp, [["诡异道具", "đạo cụ quỷ dị"]]);
+
+    const addedOff = [];
+    const ctxOff = loadSandbox({ sync_memory_to_qt: "false" }, {}, null, {
+        localBook: Object.assign({}, mockBook, {
+            addQtName: (w, t) => addedOff.push(w),
+            addQtVietPhrase: (w, t) => addedOff.push(w)
+        })
+    });
+    ctxOff.load("translate.js");
+    ctxOff.persistTranslationMemory({ bookId: "book_test", chinese: true, to: "vi", existing: {} }, orig, [
+        { source: "黎念", target: "Lê Niệm", kind: "character" }
+    ]);
+    assert.strictEqual(addedOff.length, 0);
+    return "QT dictionary sync + no-overwrite + toggle OFF OK";
+});
+
 let passed = 0;
 for (const t of tests) {
     try {

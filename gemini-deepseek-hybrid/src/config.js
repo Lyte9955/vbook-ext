@@ -68,6 +68,12 @@ function execute() {
         "default": "false",
         mode: "toggle"
     };
+    config[translationConfigKey("sync_memory_to_qt")] = {
+        title: "4.2b. Đồng bộ từ mới sang từ điển QuickTranslator",
+        subtitle: "BẬT (Mặc định): tự ghi tên riêng vào Names (addQtName) và thuật ngữ vào VietPhrase (addQtVietPhrase) của vBook khi AI học từ mới hoặc phân tích nhân vật (không ghi đè từ đã có)",
+        "default": "true",
+        mode: "toggle"
+    };
     config[translationConfigKey("memory_analysis_chapters")] = {
         title: "4.3. Số chương phân tích mỗi lần chạy Action",
         subtitle: "Action 'Phân tích tên nhân vật và quan hệ' sẽ đọc từ chương đang đọc trở đi, tối đa theo số này",

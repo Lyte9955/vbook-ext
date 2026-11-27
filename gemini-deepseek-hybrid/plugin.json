@@ -2,7 +2,7 @@
   "metadata": {
     "name": "Gemini + DeepSeek Hybrid",
     "author": "vBook",
-    "version": 38,
+    "version": 39,
     "source": "https://aistudio.google.com",
     "description": "Kiến trúc lai: Google Gemini Free Tier dịch chính + DeepSeek (Gitapihub) nhớ ngữ cảnh, học bộ nhớ, sửa chữ Hán sót và cứu hộ",
     "locale": "global",

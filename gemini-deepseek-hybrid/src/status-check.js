@@ -42,7 +42,7 @@ function execute() {
         }
 
         var lines = [];
-        lines.push("Phiên bản extension: v38");
+        lines.push("Phiên bản extension: v39");
         var aliveKeys = Math.max(0, gemKeys.length - deadAuth);
         var nextCursorPos = gemKeys.length > 0 ? ((state.cursor % gemKeys.length) + 1) : 0;
         lines.push("Gemini API keys: " + gemKeys.length + " key (sống: " + aliveKeys + ", lỗi 401/403: " + deadAuth + ")");
@@ -123,7 +123,7 @@ function execute() {
                 }
                 var syncCnt = "";
                 try { syncCnt = String(localStorage.getItem(LLM_DS_SYNC_COUNT_PREFIX + bid) || ""); } catch (eSc) {}
-                if (syncCnt) lines.push("Số lượt đồng bộ DeepSeek: " + syncCnt);
+                if (syncCnt) lines.push("Số lượt đồng bộ ngữ cảnh: " + syncCnt);
             }
         } catch (eBook) {}
 

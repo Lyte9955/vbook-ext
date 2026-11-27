@@ -360,9 +360,44 @@ function analysisBuildMemoryContext(memory, text) {
     return lines.join("\n");
 }
 
+function analysisSyncToQt(items, chinese, chineseTarget) {
+    if (!chinese || chineseTarget) return;
+    if (analysisReadConfig("sync_memory_to_qt", "true") !== "true") return;
+    if (!Array.isArray(items) || items.length === 0) return;
+    var canAddName = typeof localBook !== "undefined" && localBook && typeof localBook.addQtName === "function";
+    var canAddVp = typeof localBook !== "undefined" && localBook && typeof localBook.addQtVietPhrase === "function";
+    if (!canAddName && !canAddVp) return;
+
+    var qtNames = {};
+    var qtVp = {};
+    try { qtNames = localBook.getQtNames() || {}; } catch (eN) {}
+    try { qtVp = localBook.getQtVietPhrases() || {}; } catch (eV) {}
+
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it || !it.source || !it.target) continue;
+        var src = String(it.source).trim();
+        var tgt = String(it.target).trim();
+        var kind = String(it.kind || "term");
+        if (src.length < 2 || src.length > 20 || tgt.length < 2 || tgt.length > 60) continue;
+        if (analysisContainsChinese(tgt)) continue;
+
+        if (kind === "character" || kind === "place" || kind === "organization") {
+            if (canAddName && !qtNames[src]) {
+                try { localBook.addQtName(src, tgt); qtNames[src] = tgt; } catch (e1) {}
+            }
+        } else {
+            if (canAddVp && !qtVp[src] && !qtNames[src]) {
+                try { localBook.addQtVietPhrase(src, tgt); qtVp[src] = tgt; } catch (e2) {}
+            }
+        }
+    }
+}
+
 function analysisMergeEntities(bookId, memory, entities, text, position, chinese, chineseTarget) {
     if (!Array.isArray(entities) || entities.length === 0) return 0;
     var records = [];
+    var qtSyncItems = [];
     var touched = {};
 
     for (var index = 0; index < entities.length; index++) {
@@ -395,15 +430,19 @@ function analysisMergeEntities(bookId, memory, entities, text, position, chinese
 
         memory[canonical] = merged;
         records.push({ key: canonical, value: JSON.stringify(merged) });
+        qtSyncItems.push({ source: canonical, target: merged.target, kind: merged.kind });
         touched[canonical] = true;
     }
 
     if (records.length === 0) return 0;
+    var upserted = 0;
     try {
-        return Number(localDatabase.upsertAll(bookId, ANALYSIS_TABLE, records)) || 0;
+        upserted = Number(localDatabase.upsertAll(bookId, ANALYSIS_TABLE, records)) || 0;
     } catch (e) {
-        return 0;
+        upserted = 0;
     }
+    analysisSyncToQt(qtSyncItems, chinese, chineseTarget);
+    return upserted;
 }
 
 function analysisFindCanonical(memory, source) {

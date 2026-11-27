@@ -729,10 +729,44 @@ function sanitizeTranslationOutput(text, original, to) {
     return out.trim();
 }
 
+function syncItemsToQtDictionary(items, isChinese, to) {
+    if (!isChinese || to !== "vi" || !readBoolean("sync_memory_to_qt", true)) return;
+    if (!Array.isArray(items) || items.length === 0) return;
+    var canAddName = typeof localBook !== "undefined" && localBook && typeof localBook.addQtName === "function";
+    var canAddVp = typeof localBook !== "undefined" && localBook && typeof localBook.addQtVietPhrase === "function";
+    if (!canAddName && !canAddVp) return;
+
+    var qtNames = {};
+    var qtVp = {};
+    try { qtNames = localBook.getQtNames() || {}; } catch (eN) {}
+    try { qtVp = localBook.getQtVietPhrases() || {}; } catch (eV) {}
+
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (!it || !it.source || !it.target) continue;
+        var src = String(it.source).trim();
+        var tgt = String(it.target).trim();
+        var kind = String(it.kind || "term");
+        if (src.length < 2 || src.length > 20 || tgt.length < 2 || tgt.length > 60) continue;
+        if (containsChinese(tgt)) continue;
+
+        if (kind === "character" || kind === "place" || kind === "organization") {
+            if (canAddName && !qtNames[src]) {
+                try { localBook.addQtName(src, tgt); qtNames[src] = tgt; } catch (e1) {}
+            }
+        } else {
+            if (canAddVp && !qtVp[src] && !qtNames[src]) {
+                try { localBook.addQtVietPhrase(src, tgt); qtVp[src] = tgt; } catch (e2) {}
+            }
+        }
+    }
+}
+
 function persistTranslationMemory(context, input, items) {
     if (!context.bookId || !Array.isArray(items) || items.length === 0) return;
 
     var records = [];
+    var qtSyncItems = [];
     for (var i = 0; i < items.length && records.length < MAX_LEARNED_ITEMS; i++) {
         var item = items[i];
         if (!item) continue;
@@ -752,6 +786,7 @@ function persistTranslationMemory(context, input, items) {
             key: source,
             value: JSON.stringify({ target: target, kind: kind, note: note })
         });
+        qtSyncItems.push({ source: source, target: target, kind: kind });
         context.existing[source] = true;
     }
 
@@ -760,6 +795,8 @@ function persistTranslationMemory(context, input, items) {
     try {
         localDatabase.upsertAll(context.bookId, TRANSLATION_MEMORY_TABLE, records);
     } catch (e) {}
+
+    syncItemsToQtDictionary(qtSyncItems, context.chinese, context.to);
 }
 
 function extractTranslationMemory(model, apiKeys, original, translated, from, to, memoryPrompt, bookId) {
