@@ -1,7 +1,7 @@
 # Dự án vBook Extension: Gemini + DeepSeek Hybrid
 
 ## 1. Tổng quan & Trạng thái hiện tại
-- **Phiên bản hiện tại**: `v40` (13/13 test PASS).
+- **Phiên bản hiện tại**: `v41` (14/14 test PASS).
 - **Kho GitHub kệ vBook**: `Lyte9955/vbook-ext` (nhánh `main`).
 - **Link kệ trên vBook**: `https://raw.githubusercontent.com/Lyte9955/vbook-ext/main/plugin.json`
 - **App mục tiêu**: vBook Android `1.2.9` (APK tham khảo ở `tools/`, đã bị `.gitignore`).
@@ -16,7 +16,7 @@
 - `gemini-deepseek-hybrid/plugin.json`: `version` phải khớp `plugin.json` gốc và `src/status-check.js`.
 - `gemini-deepseek-hybrid/plugin.zip`: gốc zip chỉ chứa `icon.png`, `plugin.json`, `src/*.js`.
 - `scripts/build.py`: kiểm tra cú pháp, chạy test, đóng gói (`--bump` để tăng version).
-- `tests/run_tests.js`: 13 test mô phỏng runtime vBook trên Node.js.
+- `tests/run_tests.js`: 14 test mô phỏng runtime vBook trên Node.js.
 - Môi trường Windows: Node.js LTS + Git đã cài qua winget; cần nạp lại PATH (`Machine` + `User`) trước khi gọi `node`/`git`; dùng `python` (không phải `python3`).
 
 ## 3. Kiến trúc v40: "60 key Gemini gánh 99%, DeepSeek chỉ cứu hộ"
@@ -25,7 +25,7 @@
 3. **DeepSeek cứu hộ (`2.4`)**: khi Gemini chặn `PROHIBITED_CONTENT/SAFETY`, cắt `max_tokens`, hoặc lỗi toàn chuỗi model.
 4. **Cầu dao DeepSeek**: HTTP 401/402/403 → tạm ngắt key 6 giờ (`dsAuthDead` trong `gemini_ft_state_v2`); `reset-keys` gỡ ngay.
 5. **QT-Polish (`3.5`/`3.6`)** + Adaptive Gate (8–25% sót Hán tự kèm nguyên văn, >25% bỏ QT) + Echo-Guard (bản QT ≥200 ký tự bị chép y nguyên thì dịch lại).
-6. **Đồng bộ từ điển QuickTranslator (`4.2b`/`4.2c`)**: từ AI học được lưu vào `translation_memory`, đồng thời chờ xuất hiện lại ở chương sau (mặc định 2 lần) mới ghi sang `localBook.addQtName` / `localBook.addQtVietPhrase`; không bao giờ ghi đè từ đã có; nhật ký 30 từ gần nhất hiện trong `status-check`. vBook 1.2.9 **không có API xóa**, sửa từ sai thủ công trong vBook.
+6. **Đồng bộ từ điển QuickTranslator (`4.2b`/`4.2c`/`4.2d`)**: từ AI học được lưu vào `translation_memory`, mặc định chỉ đồng bộ Tên riêng (`character`/`place`/`organization`) sang `localBook.addQtName` sau khi xuất hiện lại (mặc định 2 lần); `4.2d` mặc định **TẮT** (nếu bật chỉ ghi `term` >= 3 chữ Hán chưa có trong `Qt.translate` gốc sang `addQtVietPhrase`); không bao giờ ghi đè từ đã có; nhật ký 30 từ gần nhất hiện trong `status-check`. vBook 1.2.9 **không có API xóa**, sửa từ sai thủ công trong vBook.
 7. **Khóa cứng đại từ & chuẩn hóa TTS (`src/translate.js`)**: `<hard_pronoun_lock>` luôn ở cuối `systemInstruction`; `sanitizeTranslationOutput()` chuẩn hóa dấu câu CJK và khoảng trắng.
 8. **6 Action**: `status-check`, `analyze-memory`, `capture-context`, `reset-context`, `reset-keys`, `reset-defaults`.
 

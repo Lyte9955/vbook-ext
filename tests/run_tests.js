@@ -329,7 +329,7 @@ test("10. v39: persistTranslationMemory syncs new names/terms to QT without over
         addQtName: (w, t) => { addedNames.push([w, t]); },
         addQtVietPhrase: (w, t) => { addedVp.push([w, t]); }
     };
-    const ctx = loadSandbox({ sync_memory_to_qt: "true", qt_sync_min_hits: "1" }, {}, null, { localBook: mockBook });
+    const ctx = loadSandbox({ sync_memory_to_qt: "true", qt_sync_min_hits: "1", sync_term_to_qt: "true" }, {}, null, { localBook: mockBook });
     ctx.load("translate.js");
     const memCtx = { bookId: "book_test", chinese: true, to: "vi", existing: {} };
     const orig = "林御 và 黎念 đi vào 青山精神病院 cùng 副本 và 诡异道具.";
@@ -435,6 +435,45 @@ test("13. v40: context_sync_interval=2 runs story_state update on chapters 1 and
     }
     assert.strictEqual(gemCalls, 2);
     return "Interval 2 -> 2/3 calls";
+});
+
+// 14. v41: Anti-dilution QT filter (names-only default, >=3-char terms, skip Qt-known meanings)
+test("14. v41: QT filter skips terms by default, skips 2-char & Qt-known terms when 4.2d=ON", () => {
+    const addedNames = [];
+    const addedVp = [];
+    const mockBook = {
+        getInfo: () => ({ id: "book_test", lastReadChapterIndex: 1 }),
+        getNames: () => ({}),
+        getQtNames: () => ({}),
+        getQtVietPhrases: () => ({}),
+        addQtName: (w, t) => { addedNames.push([w, t]); },
+        addQtVietPhrase: (w, t) => { addedVp.push([w, t]); }
+    };
+    const mockQt = {
+        translate: (src) => ({ translateText: src === "欺诈师之眼" ? "Mắt Kẻ Lừa Gạt" : "" })
+    };
+    const orig = "黎念 sử dụng 欺诈师之眼 và 太古神诀 với 玩家.";
+
+    const ctx1 = loadSandbox({ sync_memory_to_qt: "true", qt_sync_min_hits: "1" }, {}, null, { localBook: mockBook, Qt: mockQt });
+    ctx1.load("translate.js");
+    ctx1.persistTranslationMemory({ bookId: "book_test", chinese: true, to: "vi", existing: {} }, orig, [
+        { source: "黎念", target: "Lê Niệm", kind: "character" },
+        { source: "太古神诀", target: "Thái Cổ Thần Quyết", kind: "term" },
+        { source: "玩家", target: "người chơi", kind: "term" }
+    ]);
+    assert.deepStrictEqual(addedNames, [["黎念", "Lê Niệm"]]);
+    assert.strictEqual(addedVp.length, 0);
+
+    addedNames.length = 0;
+    const ctx2 = loadSandbox({ sync_memory_to_qt: "true", qt_sync_min_hits: "1", sync_term_to_qt: "true" }, {}, null, { localBook: mockBook, Qt: mockQt });
+    ctx2.load("translate.js");
+    ctx2.persistTranslationMemory({ bookId: "book_test", chinese: true, to: "vi", existing: {} }, orig, [
+        { source: "玩家", target: "người chơi", kind: "term" },
+        { source: "欺诈师之眼", target: "Mắt Kẻ Lừa Gạt", kind: "term" },
+        { source: "太古神诀", target: "Thái Cổ Thần Quyết", kind: "term" }
+    ]);
+    assert.deepStrictEqual(addedVp, [["太古神诀", "Thái Cổ Thần Quyết"]]);
+    return "3-layer QT filter OK";
 });
 
 let passed = 0;

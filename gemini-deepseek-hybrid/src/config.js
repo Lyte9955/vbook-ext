@@ -81,6 +81,12 @@ function execute() {
         mode: "input",
         format: "number"
     };
+    config[translationConfigKey("sync_term_to_qt")] = {
+        title: "4.2d. Đồng bộ cả thuật ngữ (term) sang VietPhrase QT",
+        subtitle: "TẮT (Mặc định v41 — chống loãng từ điển): chỉ ghi Tên riêng sang Names, giữ thuật ngữ trong bộ nhớ AI. BẬT: ghi thêm thuật ngữ đặc thù (>= 3 chữ Hán) chưa có trong QT gốc",
+        "default": "false",
+        mode: "toggle"
+    };
     config[translationConfigKey("memory_analysis_chapters")] = {
         title: "4.3. Số chương phân tích mỗi lần chạy Action",
         subtitle: "Action 'Phân tích tên nhân vật và quan hệ' sẽ đọc từ chương đang đọc trở đi, tối đa theo số này",

@@ -368,6 +368,7 @@ function analysisSyncToQt(items, chinese, chineseTarget, bookId) {
     var canAddVp = typeof localBook !== "undefined" && localBook && typeof localBook.addQtVietPhrase === "function";
     if (!canAddName && !canAddVp) return;
 
+    var allowTermSync = analysisReadConfig("sync_term_to_qt", "false") === "true";
     var qtNames = {};
     var qtVp = {};
     try { qtNames = localBook.getQtNames() || {}; } catch (eN) {}
@@ -381,6 +382,16 @@ function analysisSyncToQt(items, chinese, chineseTarget, bookId) {
         var kind = String(it.kind || "term");
         if (src.length < 2 || src.length > 20 || tgt.length < 2 || tgt.length > 60) continue;
         if (analysisContainsChinese(tgt)) continue;
+        var isNameKind = (kind === "character" || kind === "place" || kind === "organization");
+        if (!isNameKind && (!allowTermSync || src.length < 3)) continue;
+        try {
+            if (typeof Qt !== "undefined" && Qt && typeof Qt.translate === "function") {
+                var qtRes = Qt.translate(src, "vi", { source: "chapterContent", first_capitalize: false });
+                var qtOut = qtRes && qtRes.translateText ? String(qtRes.translateText).replace(/\s+/g, " ").trim().toLowerCase() : "";
+                var wantOut = tgt.replace(/\s+/g, " ").trim().toLowerCase();
+                if (qtOut && wantOut && qtOut === wantOut) continue;
+            }
+        } catch (eQt) {}
 
         if (kind === "character" || kind === "place" || kind === "organization") {
             if (canAddName && !qtNames[src]) {

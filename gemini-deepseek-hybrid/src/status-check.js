@@ -42,7 +42,7 @@ function execute() {
         }
 
         var lines = [];
-        lines.push("Phiên bản extension: v40");
+        lines.push("Phiên bản extension: v41");
         var aliveKeys = Math.max(0, gemKeys.length - deadAuth);
         var nextCursorPos = gemKeys.length > 0 ? ((state.cursor % gemKeys.length) + 1) : 0;
         lines.push("Gemini API keys: " + gemKeys.length + " key (sống: " + aliveKeys + ", lỗi 401/403: " + deadAuth + ")");

@@ -733,6 +733,18 @@ function sanitizeTranslationOutput(text, original, to) {
     return out.trim();
 }
 
+function qtAlreadyKnowsTranslation(src, tgt) {
+    try {
+        if (typeof Qt === "undefined" || !Qt || typeof Qt.translate !== "function") return false;
+        var res = Qt.translate(src, "vi", { source: "chapterContent", first_capitalize: false });
+        var out = res && res.translateText ? String(res.translateText).replace(/\s+/g, " ").trim().toLowerCase() : "";
+        var want = String(tgt || "").replace(/\s+/g, " ").trim().toLowerCase();
+        return Boolean(out && want && out === want);
+    } catch (e) {
+        return false;
+    }
+}
+
 function qtWriteEntry(src, tgt, kind, qtNames, qtVp, bookId) {
     var canAddName = typeof localBook !== "undefined" && localBook && typeof localBook.addQtName === "function";
     var canAddVp = typeof localBook !== "undefined" && localBook && typeof localBook.addQtVietPhrase === "function";
@@ -746,6 +758,7 @@ function qtWriteEntry(src, tgt, kind, qtNames, qtVp, bookId) {
             } catch (e1) {}
         }
     } else if (canAddVp && !qtVp[src] && !qtNames[src]) {
+        if (!readBoolean("sync_term_to_qt", false) || String(src || "").length < 3) return false;
         try {
             localBook.addQtVietPhrase(src, tgt);
             qtVp[src] = tgt;
@@ -788,6 +801,7 @@ function syncItemsToQtDictionary(items, isChinese, to, bookId) {
     if (!canAddName && !canAddVp) return;
 
     var minHits = Math.round(readNumber("qt_sync_min_hits", 2, 1, 5));
+    var allowTermSync = readBoolean("sync_term_to_qt", false);
     var qtNames = {};
     var qtVp = {};
     try { qtNames = localBook.getQtNames() || {}; } catch (eN) {}
@@ -804,6 +818,9 @@ function syncItemsToQtDictionary(items, isChinese, to, bookId) {
         if (src.length < 2 || src.length > 20 || tgt.length < 2 || tgt.length > 60) continue;
         if (containsChinese(tgt)) continue;
         if (qtNames[src] || qtVp[src]) continue;
+        var isNameKind = (kind === "character" || kind === "place" || kind === "organization");
+        if (!isNameKind && (!allowTermSync || src.length < 3)) continue;
+        if (qtAlreadyKnowsTranslation(src, tgt)) continue;
 
         if (pending) {
             if (!pending[src]) {
